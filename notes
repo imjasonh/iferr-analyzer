@@ -1,0 +1,16 @@
+// Condition compares to non-nil
+func notNilComparison() error {
+	err := foo()
+	other := foo()
+	if err != other {
+		return err
+	}
+	return nil
+}
+
+
+---> this could become
+
+if err, other := foo(), foo(); err != other {
+    return err
+}

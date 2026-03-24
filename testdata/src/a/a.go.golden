@@ -1,0 +1,110 @@
+package a
+
+import "fmt"
+
+func foo() error {
+	return nil
+}
+
+func bar() (int, error) {
+	return 0, nil
+}
+
+func baz() (int, error) {
+	return 0, nil
+}
+
+// Basic case: err := foo(); if err != nil
+func basic() error {
+	if err := foo(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Blank + err: _, err := bar()
+func blankErr() error {
+	if _, err := bar(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Multi-line if body
+func multiLineBody() error {
+	if err := foo(); err != nil {
+		fmt.Println("error:", err)
+		return err
+	}
+	return nil
+}
+
+// --- Negative cases below ---
+
+// err used after if block
+func errUsedAfter() error {
+	err := foo()
+	if err != nil {
+		return err
+	}
+	fmt.Println(err)
+	return nil
+}
+
+// Assignment uses = not :=
+func assignNotDefine() error {
+	var err error
+	err = foo()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// If already has an Init
+func alreadyHasInit() error {
+	err := foo()
+	if err2 := foo(); err2 != nil {
+		_ = err
+		return err2
+	}
+	return nil
+}
+
+// Condition is err == nil (not !=)
+func equalNil() error {
+	err := foo()
+	if err == nil {
+		return nil
+	}
+	return err
+}
+
+// Condition compares to non-nil
+func notNilComparison() error {
+	err := foo()
+	other := foo()
+	if err != other {
+		return err
+	}
+	return nil
+}
+
+// Non-consecutive: something between assign and if
+func nonConsecutive() error {
+	err := foo()
+	fmt.Println("between")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// result used after the if block
+func resultUsedAfter() (int, error) {
+	result, err := bar()
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
+}
