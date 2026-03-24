@@ -136,7 +136,7 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			Message: "can inline assignment into if statement",
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
-					Message:   "inline assignment",
+					Message: "inline assignment",
 					TextEdits: []analysis.TextEdit{
 						{
 							Pos:     startPos,
