@@ -1,6 +1,6 @@
 # iferr-analyzer
 
-A Go analyzer that suggests inlining assignments into `if` conditions.
+A [Go analyzer](https://pkg.go.dev/golang.org/x/tools/go/analysis) that suggests inlining assignments into `if` conditions.
 
 ## Install
 
