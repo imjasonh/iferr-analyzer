@@ -19,7 +19,7 @@ var Analyzer = &analysis.Analyzer{
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (any, error) {
 	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
@@ -51,6 +51,11 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			continue
 		}
 
+		// For = assignments, := only works with plain identifiers on the LHS.
+		if assign.Tok == token.ASSIGN && !allIdentsLHS(assign) {
+			continue
+		}
+
 		ifStmt, ok := stmts[i+1].(*ast.IfStmt)
 		if !ok || ifStmt.Init != nil {
 			continue
@@ -66,6 +71,13 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 		}
 
 		if usedAfterIf(pass, assign, ifStmt, stmts[i+2:]) {
+			continue
+		}
+
+		// For = assignments, skip if any LHS variable is a named result
+		// parameter. Bare return statements implicitly use named results,
+		// but don't appear in TypesInfo.Uses.
+		if assign.Tok == token.ASSIGN && assignsToNamedResult(pass, assign) {
 			continue
 		}
 
@@ -108,6 +120,17 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			},
 		})
 	}
+}
+
+// allIdentsLHS reports whether every LHS expression is a plain identifier.
+// := requires this; selector expressions, index expressions, etc. are not valid.
+func allIdentsLHS(assign *ast.AssignStmt) bool {
+	for _, lhs := range assign.Lhs {
+		if _, ok := lhs.(*ast.Ident); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // lastNonBlankLHS returns the last non-blank identifier on the LHS of an assignment.
@@ -183,26 +206,50 @@ func matchingVarDecl(prev ast.Stmt, assign *ast.AssignStmt) *ast.DeclStmt {
 }
 
 // usedAfterIf checks if any non-blank LHS variable from the assignment is used
-// after the if statement in the remaining statements of the block.
+// after the if statement.
+//
+// For := assignments, we only need to check within the current block since
+// the variable's scope is limited to that block.
+//
+// For = assignments, the variable was defined in an outer scope. Inlining
+// would create a new := variable scoped to the if statement, so we must
+// check for uses anywhere after the if in the enclosing function.
 func usedAfterIf(pass *analysis.Pass, assign *ast.AssignStmt, ifStmt *ast.IfStmt, remaining []ast.Stmt) bool {
-	if len(remaining) == 0 {
-		return false
-	}
-
 	objs := lhsObjects(pass, assign)
 	if len(objs) == 0 {
 		return false
 	}
 
 	afterPos := ifStmt.End()
-	endPos := remaining[len(remaining)-1].End()
 
-	for id, obj := range pass.TypesInfo.Uses {
-		if objs[obj] && id.Pos() >= afterPos && id.Pos() <= endPos {
-			return true
+	if assign.Tok == token.DEFINE {
+		if len(remaining) == 0 {
+			return false
 		}
+		endPos := remaining[len(remaining)-1].End()
+		for id, obj := range pass.TypesInfo.Uses {
+			if objs[obj] && id.Pos() >= afterPos && id.Pos() <= endPos {
+				return true
+			}
+		}
+		return false
 	}
 
+	// For = assignments, check for uses anywhere outside the assign+if range.
+	// This catches variables used after the if (including in outer scopes),
+	// and also variables referenced before the assignment (e.g. in a for
+	// loop condition that gets re-evaluated after the body executes).
+	for id, obj := range pass.TypesInfo.Uses {
+		if !objs[obj] {
+			continue
+		}
+		pos := id.Pos()
+		// Skip uses within the assign+if range itself.
+		if pos >= assign.Pos() && pos < ifStmt.End() {
+			continue
+		}
+		return true
+	}
 	return false
 }
 
@@ -226,4 +273,60 @@ func lhsObjects(pass *analysis.Pass, assign *ast.AssignStmt) map[types.Object]bo
 		}
 	}
 	return objs
+}
+
+// assignsToNamedResult reports whether any non-blank LHS variable of a =
+// assignment is a named result parameter of the enclosing function.
+// Bare return statements implicitly use named results but don't appear in
+// TypesInfo.Uses, so we must avoid inlining assignments to them.
+func assignsToNamedResult(pass *analysis.Pass, assign *ast.AssignStmt) bool {
+	// Find the tightest enclosing function (FuncDecl or FuncLit).
+	var funcType *ast.FuncType
+	for _, file := range pass.Files {
+		if assign.Pos() < file.Pos() || assign.Pos() > file.End() {
+			continue
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				return false
+			}
+			if assign.Pos() < n.Pos() || assign.Pos() > n.End() {
+				return false
+			}
+			switch n := n.(type) {
+			case *ast.FuncDecl:
+				funcType = n.Type
+			case *ast.FuncLit:
+				funcType = n.Type
+			}
+			return true
+		})
+		break
+	}
+	if funcType == nil || funcType.Results == nil {
+		return false
+	}
+
+	resultObjs := map[types.Object]bool{}
+	for _, field := range funcType.Results.List {
+		for _, name := range field.Names {
+			if obj := pass.TypesInfo.Defs[name]; obj != nil {
+				resultObjs[obj] = true
+			}
+		}
+	}
+	if len(resultObjs) == 0 {
+		return false
+	}
+
+	for _, lhs := range assign.Lhs {
+		id, ok := lhs.(*ast.Ident)
+		if !ok || id.Name == "_" {
+			continue
+		}
+		if obj := pass.TypesInfo.Uses[id]; obj != nil && resultObjs[obj] {
+			return true
+		}
+	}
+	return false
 }

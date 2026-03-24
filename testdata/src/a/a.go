@@ -10,6 +10,14 @@ func bar() (int, error) {
 	return 0, nil
 }
 
+func baz() (int, string, error) {
+	return 0, "", nil
+}
+
+type thing struct {
+	val int
+}
+
 // Basic case
 func basic() error {
 	err := foo() // want `can inline assignment into if statement`
@@ -33,6 +41,15 @@ func multiLineBody() error {
 	err := foo() // want `can inline assignment into if statement`
 	if err != nil {
 		fmt.Println("error:", err)
+		return err
+	}
+	return nil
+}
+
+// Multiple blanks + err
+func multipleBlanks() error {
+	_, _, err := baz() // want `can inline assignment into if statement`
+	if err != nil {
 		return err
 	}
 	return nil
@@ -119,6 +136,78 @@ func nonConsecutive() error {
 // result used after the if block
 func resultUsedAfter() (int, error) {
 	result, err := bar()
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
+}
+
+// Selector expression on LHS: := is invalid
+func selectorLHS() error {
+	var t thing
+	var err error
+	t.val, err = bar()
+	if err != nil {
+		return err
+	}
+	_ = t
+	return nil
+}
+
+// Named return parameter: bare return implicitly uses it
+func namedReturn() (err error) {
+	err = foo()
+	if err != nil {
+		fmt.Println(err)
+	}
+	return
+}
+
+// Variable used in outer scope after nested block
+func usedInOuterScope() error {
+	var err error
+	if true {
+		err = foo()
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Println(err)
+	return nil
+}
+
+// Variable used in for loop condition (re-evaluated after body)
+func usedInForCondition() error {
+	data := []int{1, 2, 3}
+	i, err := bar()
+	if err != nil {
+		return err
+	}
+	for i < len(data) {
+		i, err = bar()
+		if err != nil {
+			return err
+		}
+	}
+	_ = data
+	return nil
+}
+
+// Named return in function literal: bare return implicitly uses it
+func funcLitNamedReturn() {
+	f := func() (err error) {
+		err = foo()
+		if err != nil {
+			fmt.Println(err)
+		}
+		return
+	}
+	_ = f
+}
+
+// result used after the if block (with blanks)
+func resultBlanksUsedAfter() (int, error) {
+	result, _, err := baz()
 	if err != nil {
 		return 0, err
 	}
