@@ -103,8 +103,11 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			}
 		}
 
-		// Collect comments in the range being replaced so they are preserved.
-		comments := commentsInRange(pass, startPos, ifStmt.Cond.Pos())
+		// Collect comments between the assignment and the if condition so
+		// they are preserved. Comments on the assignment line itself are
+		// tied to the assignment and not carried over.
+		assignLine := pass.Fset.Position(assign.End()).Line
+		comments := commentsInRange(pass, startPos, ifStmt.Cond.Pos(), assignLine)
 		var prefix string
 		if len(comments) > 0 {
 			col := pass.Fset.Position(startPos).Column
@@ -136,13 +139,17 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 	}
 }
 
-// commentsInRange returns comment groups whose positions fall within [start, end).
-func commentsInRange(pass *analysis.Pass, start, end token.Pos) []*ast.CommentGroup {
+// commentsInRange returns comment groups whose positions fall within [start, end),
+// excluding any comments on skipLine (used to skip comments on the assignment line).
+func commentsInRange(pass *analysis.Pass, start, end token.Pos, skipLine int) []*ast.CommentGroup {
 	for _, file := range pass.Files {
 		if file.Pos() <= start && start <= file.End() {
 			var result []*ast.CommentGroup
 			for _, cg := range file.Comments {
 				if cg.Pos() >= start && cg.End() <= end {
+					if pass.Fset.Position(cg.Pos()).Line == skipLine {
+						continue
+					}
 					result = append(result, cg)
 				}
 			}

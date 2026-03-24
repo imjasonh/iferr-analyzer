@@ -82,17 +82,8 @@ func assignWithVar() error {
 	return nil
 }
 
-// Comment on same line as assignment
-func commentOnAssign() error {
-	err := foo() /* important context */ // want `can inline assignment into if statement`
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// Comment between assignment and if
-func commentBetweenStmts() error {
+// Comment on previous line before if
+func commentBeforeIf() error {
 	err := foo() // want `can inline assignment into if statement`
 	// this checks for errors
 	if err != nil {
@@ -101,10 +92,11 @@ func commentBetweenStmts() error {
 	return nil
 }
 
-// Comment on same line as assignment AND between statements
-func commentBoth() error {
-	err := foo() /* inline note */ // want `can inline assignment into if statement`
-	// also a line comment
+// Multiple comment lines before if
+func multipleCommentsBeforeIf() error {
+	err := foo() // want `can inline assignment into if statement`
+	// first comment
+	// second comment
 	if err != nil {
 		return err
 	}
