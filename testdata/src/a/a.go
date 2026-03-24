@@ -123,6 +123,26 @@ func commentBetweenStmts() error {
 	return nil
 }
 
+// Linter directive between assignment and if is preserved
+func commentNolint() error {
+	err := foo() // want `can inline assignment into if statement`
+	//nolint:errcheck
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment between and comment on if line: only between-comment floats up
+func commentMixed() error {
+	err := foo() // want `can inline assignment into if statement`
+	// check the error
+	if err != nil { // handle error case
+		return err
+	}
+	return nil
+}
+
 // Comments inside func literal body are preserved
 func commentInFuncLit() {
 	err := bar2(func(i int) error { // want `can inline assignment into if statement`
