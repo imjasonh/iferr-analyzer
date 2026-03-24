@@ -82,6 +82,43 @@ func assignWithVar() error {
 	return nil
 }
 
+// Comment on assignment line only
+func commentOnAssignLine() error {
+	err := foo() /* hi */ // want `can inline assignment into if statement`
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment on if line only
+func commentOnIfLine() error {
+	err := foo()    // want `can inline assignment into if statement`
+	if err != nil { // hi2
+		return err
+	}
+	return nil
+}
+
+// Comments on both assignment and if lines
+func commentOnBothLines() error {
+	err := foo()    /* hi */ // want `can inline assignment into if statement`
+	if err != nil { // hi2
+		return err
+	}
+	return nil
+}
+
+// Comment between assignment and if
+func commentBetweenStmts() error {
+	err := foo() // want `can inline assignment into if statement`
+	// this checks for errors
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // --- Negative cases below ---
 
 // err used after if block

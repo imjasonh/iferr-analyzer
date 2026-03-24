@@ -6,6 +6,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -102,24 +103,77 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			}
 		}
 
+		// Collect comments that would be lost or left orphaned by the
+		// inlining so they can be preserved above the if statement:
+		//   1. Comments in the replacement range [startPos, ifStmt.Cond.Pos())
+		//      — covers the assignment line and any lines between it and the if.
+		//   2. Comments on the if line after the opening brace — these stay
+		//      syntactically valid but look odd on the now-longer line, so we
+		//      move them above as well.
+		var preserved []*ast.CommentGroup
+		var extraEdits []analysis.TextEdit
+		if file := containingFile(pass, startPos); file != nil {
+			ifLine := pass.Fset.Position(ifStmt.If).Line
+			for _, cg := range file.Comments {
+				// Comments inside the replacement range.
+				if cg.Pos() >= startPos && cg.End() <= ifStmt.Cond.Pos() {
+					preserved = append(preserved, cg)
+					continue
+				}
+				// Comments on the if line after the opening brace.
+				if pass.Fset.Position(cg.Pos()).Line == ifLine && cg.Pos() > ifStmt.Body.Lbrace {
+					preserved = append(preserved, cg)
+					extraEdits = append(extraEdits, analysis.TextEdit{
+						Pos:     ifStmt.Body.Lbrace + 1,
+						End:     cg.End(),
+						NewText: []byte{},
+					})
+				}
+			}
+		}
+
+		var prefix string
+		if len(preserved) > 0 {
+			col := pass.Fset.Position(startPos).Column
+			indent := strings.Repeat("\t", col-1)
+			for _, cg := range preserved {
+				for _, c := range cg.List {
+					prefix += c.Text + "\n" + indent
+				}
+			}
+		}
+
+		edits := []analysis.TextEdit{
+			{
+				Pos:     startPos,
+				End:     ifStmt.Cond.Pos(),
+				NewText: []byte(prefix + "if " + buf.String() + "; "),
+			},
+		}
+		edits = append(edits, extraEdits...)
+
 		pass.Report(analysis.Diagnostic{
 			Pos:     assign.Pos(),
 			End:     ifStmt.End(),
 			Message: "can inline assignment into if statement",
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
-					Message: "inline assignment",
-					TextEdits: []analysis.TextEdit{
-						{
-							Pos:     startPos,
-							End:     ifStmt.Cond.Pos(),
-							NewText: []byte("if " + buf.String() + "; "),
-						},
-					},
+					Message:   "inline assignment",
+					TextEdits: edits,
 				},
 			},
 		})
 	}
+}
+
+// containingFile returns the *ast.File that contains pos, or nil.
+func containingFile(pass *analysis.Pass, pos token.Pos) *ast.File {
+	for _, file := range pass.Files {
+		if file.Pos() <= pos && pos <= file.End() {
+			return file
+		}
+	}
+	return nil
 }
 
 // allIdentsLHS reports whether every LHS expression is a plain identifier.
