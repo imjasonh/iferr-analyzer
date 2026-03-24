@@ -1,12 +1,9 @@
 package iferr
 
 import (
-	"bytes"
 	"go/ast"
-	"go/printer"
 	"go/token"
 	"go/types"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -82,18 +79,6 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			continue
 		}
 
-		// Render the assignment. For =, produce := for the inlined form.
-		printed := assign
-		if assign.Tok == token.ASSIGN {
-			cp := *assign
-			cp.Tok = token.DEFINE
-			printed = &cp
-		}
-		var buf bytes.Buffer
-		if err := printer.Fprint(&buf, pass.Fset, printed); err != nil {
-			continue
-		}
-
 		// For = assignments, check if the preceding statement is a matching
 		// var declaration that should be removed as part of the fix.
 		startPos := assign.Pos()
@@ -103,54 +88,47 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			}
 		}
 
-		// Collect comments that would be lost or left orphaned by the
-		// inlining so they can be preserved above the if statement:
-		//   1. Comments in the replacement range [startPos, ifStmt.Cond.Pos())
-		//      — covers the assignment line and any lines between it and the if.
-		//   2. Comments on the if line after the opening brace — these stay
-		//      syntactically valid but look odd on the now-longer line, so we
-		//      move them above as well.
-		var preserved []*ast.CommentGroup
-		var extraEdits []analysis.TextEdit
-		if file := containingFile(pass, startPos); file != nil {
-			ifLine := pass.Fset.Position(ifStmt.If).Line
+		// Read the original source text of the assignment to preserve
+		// comments (e.g. inside function literal arguments) that
+		// printer.Fprint would drop.
+		tokFile := pass.Fset.File(assign.Pos())
+		if tokFile == nil {
+			continue
+		}
+		src, err := pass.ReadFile(tokFile.Name())
+		if err != nil {
+			continue
+		}
+		assignStart := pass.Fset.Position(assign.Pos()).Offset
+		assignEnd := pass.Fset.Position(assign.End()).Offset
+		assignText := string(src[assignStart:assignEnd])
+
+		// For = assignments, replace the = token with :=.
+		if assign.Tok == token.ASSIGN {
+			tokOffset := pass.Fset.Position(assign.TokPos).Offset - assignStart
+			assignText = assignText[:tokOffset] + ":=" + assignText[tokOffset+1:]
+		}
+
+		// Collect comments between the assignment and the if so
+		// they are not deleted (e.g. //nolint, //#nosec). We use
+		// assign.End() as the lower bound to skip comments inside
+		// the RHS (e.g. within a function literal argument).
+		startOffset := pass.Fset.Position(startPos).Offset
+		indent := indentAt(src, startOffset)
+		var commentPrefix string
+		for _, file := range pass.Files {
+			if assign.Pos() < file.Pos() || assign.Pos() > file.End() {
+				continue
+			}
 			for _, cg := range file.Comments {
-				// Comments inside the replacement range.
-				if cg.Pos() >= startPos && cg.End() <= ifStmt.Cond.Pos() {
-					preserved = append(preserved, cg)
-					continue
-				}
-				// Comments on the if line after the opening brace.
-				if pass.Fset.Position(cg.Pos()).Line == ifLine && cg.Pos() > ifStmt.Body.Lbrace {
-					preserved = append(preserved, cg)
-					extraEdits = append(extraEdits, analysis.TextEdit{
-						Pos:     ifStmt.Body.Lbrace + 1,
-						End:     cg.End(),
-						NewText: []byte{},
-					})
-				}
-			}
-		}
-
-		var prefix string
-		if len(preserved) > 0 {
-			col := pass.Fset.Position(startPos).Column
-			indent := strings.Repeat("\t", col-1)
-			for _, cg := range preserved {
 				for _, c := range cg.List {
-					prefix += c.Text + "\n" + indent
+					if c.Pos() >= assign.End() && c.Pos() < ifStmt.Pos() {
+						commentPrefix += c.Text + "\n" + indent
+					}
 				}
 			}
+			break
 		}
-
-		edits := []analysis.TextEdit{
-			{
-				Pos:     startPos,
-				End:     ifStmt.Cond.Pos(),
-				NewText: []byte(prefix + "if " + buf.String() + "; "),
-			},
-		}
-		edits = append(edits, extraEdits...)
 
 		pass.Report(analysis.Diagnostic{
 			Pos:     assign.Pos(),
@@ -158,22 +136,31 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			Message: "can inline assignment into if statement",
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
-					Message:   "inline assignment",
-					TextEdits: edits,
+					Message: "inline assignment",
+					TextEdits: []analysis.TextEdit{
+						{
+							Pos:     startPos,
+							End:     ifStmt.Cond.Pos(),
+							NewText: []byte(commentPrefix + "if " + assignText + "; "),
+						},
+					},
 				},
 			},
 		})
 	}
 }
 
-// containingFile returns the *ast.File that contains pos, or nil.
-func containingFile(pass *analysis.Pass, pos token.Pos) *ast.File {
-	for _, file := range pass.Files {
-		if file.Pos() <= pos && pos <= file.End() {
-			return file
-		}
+// indentAt returns the leading whitespace on the line containing offset.
+func indentAt(src []byte, offset int) string {
+	lineStart := offset
+	for lineStart > 0 && src[lineStart-1] != '\n' {
+		lineStart--
 	}
-	return nil
+	end := lineStart
+	for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
+		end++
+	}
+	return string(src[lineStart:end])
 }
 
 // allIdentsLHS reports whether every LHS expression is a plain identifier.

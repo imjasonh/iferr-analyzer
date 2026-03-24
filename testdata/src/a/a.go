@@ -14,6 +14,10 @@ func baz() (int, string, error) {
 	return 0, "", nil
 }
 
+func bar2(fn func(int) error) error {
+	return fn(0)
+}
+
 type thing struct {
 	val int
 }
@@ -117,6 +121,40 @@ func commentBetweenStmts() error {
 		return err
 	}
 	return nil
+}
+
+// Linter directive between assignment and if is preserved
+func commentNolint() error {
+	err := foo() // want `can inline assignment into if statement`
+	//nolint:errcheck
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment between and comment on if line: only between-comment floats up
+func commentMixed() error {
+	err := foo() // want `can inline assignment into if statement`
+	// check the error
+	if err != nil { // handle error case
+		return err
+	}
+	return nil
+}
+
+// Comments inside func literal body are preserved
+func commentInFuncLit() {
+	err := bar2(func(i int) error { // want `can inline assignment into if statement`
+		// skip negative values
+		if i < 0 {
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 // --- Negative cases below ---
@@ -249,4 +287,94 @@ func resultBlanksUsedAfter() (int, error) {
 		return 0, err
 	}
 	return result, nil
+}
+
+// --- Additional positive cases ---
+
+// Multi-return where non-error result is only used inside if body
+func multiReturnUnusedAfter() error {
+	x, err := bar() // want `can inline assignment into if statement`
+	if err != nil {
+		fmt.Println(x)
+		return err
+	}
+	return nil
+}
+
+// Inside switch/case clause
+func inSwitchCase(x int) error {
+	switch x {
+	case 1:
+		err := foo() // want `can inline assignment into if statement`
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Inside select/comm clause
+func inSelectClause(ch chan int) error {
+	select {
+	case <-ch:
+		err := foo() // want `can inline assignment into if statement`
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// If with else branch, err not used after
+func ifWithElse() error {
+	err := foo() // want `can inline assignment into if statement`
+	if err != nil {
+		return err
+	} else {
+		fmt.Println("ok")
+	}
+	return nil
+}
+
+// Reversed nil comparison: nil != err
+func reversedNil() error {
+	err := foo() // want `can inline assignment into if statement`
+	if nil != err {
+		return err
+	}
+	return nil
+}
+
+// err == nil with else branch, err used in else (still part of if stmt)
+func equalNilWithElse() error {
+	err := foo() // want `can inline assignment into if statement`
+	if err == nil {
+		fmt.Println("ok")
+	} else {
+		return err
+	}
+	return nil
+}
+
+// --- Additional negative cases ---
+
+// Compound condition: top-level op is &&, not == or !=
+func compoundCondition() error {
+	err := foo()
+	if err != nil && err.Error() != "" {
+		return err
+	}
+	return nil
+}
+
+// err used after if/else block
+func errUsedAfterIfElse() error {
+	err := foo()
+	if err != nil {
+		fmt.Println("error")
+	} else {
+		fmt.Println("ok")
+	}
+	fmt.Println(err)
+	return nil
 }
