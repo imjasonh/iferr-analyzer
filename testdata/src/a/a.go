@@ -93,7 +93,7 @@ func commentOnAssignLine() error {
 
 // Comment on if line only
 func commentOnIfLine() error {
-	err := foo() // want `can inline assignment into if statement`
+	err := foo()    // want `can inline assignment into if statement`
 	if err != nil { // hi2
 		return err
 	}
@@ -102,7 +102,7 @@ func commentOnIfLine() error {
 
 // Comments on both assignment and if lines
 func commentOnBothLines() error {
-	err := foo() /* hi */ // want `can inline assignment into if statement`
+	err := foo()    /* hi */ // want `can inline assignment into if statement`
 	if err != nil { // hi2
 		return err
 	}
