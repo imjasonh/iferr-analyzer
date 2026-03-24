@@ -14,6 +14,10 @@ func baz() (int, string, error) {
 	return 0, "", nil
 }
 
+func bar2(fn func(int) error) error {
+	return fn(0)
+}
+
 type thing struct {
 	val int
 }
@@ -94,8 +98,7 @@ func commentOnAssignLine() error {
 // Comment on if line only
 func commentOnIfLine() error {
 	// want `can inline assignment into if statement`
-	// hi2
-	if err := foo(); err != nil {
+	if err := foo(); err != nil { // hi2
 		return err
 	}
 	return nil
@@ -105,8 +108,7 @@ func commentOnIfLine() error {
 func commentOnBothLines() error {
 	/* hi */
 	// want `can inline assignment into if statement`
-	// hi2
-	if err := foo(); err != nil {
+	if err := foo(); err != nil { // hi2
 		return err
 	}
 	return nil
@@ -120,6 +122,19 @@ func commentBetweenStmts() error {
 		return err
 	}
 	return nil
+}
+
+// Comments inside func literal body are preserved
+func commentInFuncLit() {
+	if err := bar2(func(i int) error { // want `can inline assignment into if statement`
+		// skip negative values
+		if i < 0 {
+			return nil
+		}
+		return nil
+	}); err != nil {
+		fmt.Println(err)
+	}
 }
 
 // --- Negative cases below ---
