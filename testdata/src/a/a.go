@@ -10,11 +10,7 @@ func bar() (int, error) {
 	return 0, nil
 }
 
-func baz() (int, error) {
-	return 0, nil
-}
-
-// Basic case: err := foo(); if err != nil
+// Basic case
 func basic() error {
 	err := foo() // want `can inline assignment into if statement`
 	if err != nil {
@@ -23,7 +19,7 @@ func basic() error {
 	return nil
 }
 
-// Blank + err: _, err := bar()
+// Blank + err
 func blankErr() error {
 	_, err := bar() // want `can inline assignment into if statement`
 	if err != nil {
@@ -42,6 +38,33 @@ func multiLineBody() error {
 	return nil
 }
 
+// Non-err variable name
+func namedErr() error {
+	_, ferr := bar() // want `can inline assignment into if statement`
+	if ferr != nil {
+		return ferr
+	}
+	return nil
+}
+
+// err == nil
+func equalNilPositive() {
+	err := foo() // want `can inline assignment into if statement`
+	if err == nil {
+		fmt.Println("success")
+	}
+}
+
+// Assignment with = and preceding var declaration
+func assignWithVar() error {
+	var err error
+	err = foo() // want `can inline assignment into if statement`
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // --- Negative cases below ---
 
 // err used after if block
@@ -51,16 +74,6 @@ func errUsedAfter() error {
 		return err
 	}
 	fmt.Println(err)
-	return nil
-}
-
-// Assignment uses = not :=
-func assignNotDefine() error {
-	var err error
-	err = foo()
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -74,8 +87,8 @@ func alreadyHasInit() error {
 	return nil
 }
 
-// Condition is err == nil (not !=)
-func equalNil() error {
+// err used after if block (== nil variant)
+func equalNilUsedAfter() error {
 	err := foo()
 	if err == nil {
 		return nil
@@ -83,7 +96,7 @@ func equalNil() error {
 	return err
 }
 
-// Condition compares to non-nil
+// Condition compares to non-nil value
 func notNilComparison() error {
 	err := foo()
 	other := foo()
@@ -93,7 +106,7 @@ func notNilComparison() error {
 	return nil
 }
 
-// Non-consecutive: something between assign and if
+// Non-consecutive statements
 func nonConsecutive() error {
 	err := foo()
 	fmt.Println("between")
