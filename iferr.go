@@ -1,9 +1,7 @@
 package iferr
 
 import (
-	"bytes"
 	"go/ast"
-	"go/printer"
 	"go/token"
 	"go/types"
 
@@ -81,18 +79,6 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			continue
 		}
 
-		// Render the assignment. For =, produce := for the inlined form.
-		printed := assign
-		if assign.Tok == token.ASSIGN {
-			cp := *assign
-			cp.Tok = token.DEFINE
-			printed = &cp
-		}
-		var buf bytes.Buffer
-		if err := printer.Fprint(&buf, pass.Fset, printed); err != nil {
-			continue
-		}
-
 		// For = assignments, check if the preceding statement is a matching
 		// var declaration that should be removed as part of the fix.
 		startPos := assign.Pos()
@@ -100,6 +86,49 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			if decl := matchingVarDecl(stmts[i-1], assign); decl != nil {
 				startPos = decl.Pos()
 			}
+		}
+
+		// Read the original source text of the assignment to preserve
+		// comments (e.g. inside function literal arguments) that
+		// printer.Fprint would drop.
+		tokFile := pass.Fset.File(assign.Pos())
+		if tokFile == nil {
+			continue
+		}
+		src, err := pass.ReadFile(tokFile.Name())
+		if err != nil {
+			continue
+		}
+		assignStart := pass.Fset.Position(assign.Pos()).Offset
+		assignEnd := pass.Fset.Position(assign.End()).Offset
+		assignText := string(src[assignStart:assignEnd])
+
+		// For = assignments, replace the = token with :=.
+		if assign.Tok == token.ASSIGN {
+			tokOffset := pass.Fset.Position(assign.TokPos).Offset - assignStart
+			assignText = assignText[:tokOffset] + ":=" + assignText[tokOffset+1:]
+		}
+
+		// Collect comments between the assignment and the if so
+		// they are not deleted (e.g. //nolint, //#nosec). We use
+		// assign.End() as the lower bound to skip comments inside
+		// the RHS (e.g. within a function literal argument).
+		// Comments are placed before the if keyword.
+		startOffset := pass.Fset.Position(startPos).Offset
+		indent := indentAt(src, startOffset)
+		var commentPrefix string
+		for _, file := range pass.Files {
+			if assign.Pos() < file.Pos() || assign.Pos() > file.End() {
+				continue
+			}
+			for _, cg := range file.Comments {
+				for _, c := range cg.List {
+					if c.Pos() >= assign.End() && c.Pos() < ifStmt.Pos() {
+						commentPrefix += c.Text + "\n" + indent
+					}
+				}
+			}
+			break
 		}
 
 		pass.Report(analysis.Diagnostic{
@@ -113,13 +142,26 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 						{
 							Pos:     startPos,
 							End:     ifStmt.Cond.Pos(),
-							NewText: []byte("if " + buf.String() + "; "),
+							NewText: []byte(commentPrefix + "if " + assignText + "; "),
 						},
 					},
 				},
 			},
 		})
 	}
+}
+
+// indentAt returns the leading whitespace on the line containing offset.
+func indentAt(src []byte, offset int) string {
+	lineStart := offset
+	for lineStart > 0 && src[lineStart-1] != '\n' {
+		lineStart--
+	}
+	end := lineStart
+	for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
+		end++
+	}
+	return string(src[lineStart:end])
 }
 
 // allIdentsLHS reports whether every LHS expression is a plain identifier.

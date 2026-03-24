@@ -14,6 +14,10 @@ func baz() (int, string, error) {
 	return 0, "", nil
 }
 
+func bar2(fn func(int) error) error {
+	return fn(0)
+}
+
 type thing struct {
 	val int
 }
@@ -80,6 +84,30 @@ func assignWithVar() error {
 		return err
 	}
 	return nil
+}
+
+// Comment between assignment and if is preserved
+func commentBetween() error {
+	err := foo() // want `can inline assignment into if statement`
+	// nolint:errcheck
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comments inside func literal body are preserved
+func commentInFuncLit() {
+	err := bar2(func(i int) error { // want `can inline assignment into if statement`
+		// skip negative values
+		if i < 0 {
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 // --- Negative cases below ---
