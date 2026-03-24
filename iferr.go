@@ -6,6 +6,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -102,6 +103,19 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 			}
 		}
 
+		// Collect comments in the range being replaced so they are preserved.
+		comments := commentsInRange(pass, startPos, ifStmt.Cond.Pos())
+		var prefix string
+		if len(comments) > 0 {
+			col := pass.Fset.Position(startPos).Column
+			indent := strings.Repeat("\t", col-1)
+			for _, cg := range comments {
+				for _, c := range cg.List {
+					prefix += c.Text + "\n" + indent
+				}
+			}
+		}
+
 		pass.Report(analysis.Diagnostic{
 			Pos:     assign.Pos(),
 			End:     ifStmt.End(),
@@ -113,13 +127,29 @@ func checkStmts(pass *analysis.Pass, stmts []ast.Stmt) {
 						{
 							Pos:     startPos,
 							End:     ifStmt.Cond.Pos(),
-							NewText: []byte("if " + buf.String() + "; "),
+							NewText: []byte(prefix + "if " + buf.String() + "; "),
 						},
 					},
 				},
 			},
 		})
 	}
+}
+
+// commentsInRange returns comment groups whose positions fall within [start, end).
+func commentsInRange(pass *analysis.Pass, start, end token.Pos) []*ast.CommentGroup {
+	for _, file := range pass.Files {
+		if file.Pos() <= start && start <= file.End() {
+			var result []*ast.CommentGroup
+			for _, cg := range file.Comments {
+				if cg.Pos() >= start && cg.End() <= end {
+					result = append(result, cg)
+				}
+			}
+			return result
+		}
+	}
+	return nil
 }
 
 // allIdentsLHS reports whether every LHS expression is a plain identifier.

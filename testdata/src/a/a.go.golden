@@ -20,6 +20,7 @@ type thing struct {
 
 // Basic case
 func basic() error {
+	// want `can inline assignment into if statement`
 	if err := foo(); err != nil {
 		return err
 	}
@@ -28,6 +29,7 @@ func basic() error {
 
 // Blank + err
 func blankErr() error {
+	// want `can inline assignment into if statement`
 	if _, err := bar(); err != nil {
 		return err
 	}
@@ -36,6 +38,7 @@ func blankErr() error {
 
 // Multi-line if body
 func multiLineBody() error {
+	// want `can inline assignment into if statement`
 	if err := foo(); err != nil {
 		fmt.Println("error:", err)
 		return err
@@ -45,6 +48,7 @@ func multiLineBody() error {
 
 // Multiple blanks + err
 func multipleBlanks() error {
+	// want `can inline assignment into if statement`
 	if _, _, err := baz(); err != nil {
 		return err
 	}
@@ -53,6 +57,7 @@ func multipleBlanks() error {
 
 // Non-err variable name
 func namedErr() error {
+	// want `can inline assignment into if statement`
 	if _, ferr := bar(); ferr != nil {
 		return ferr
 	}
@@ -61,6 +66,7 @@ func namedErr() error {
 
 // err == nil
 func equalNilPositive() {
+	// want `can inline assignment into if statement`
 	if err := foo(); err == nil {
 		fmt.Println("success")
 	}
@@ -68,6 +74,38 @@ func equalNilPositive() {
 
 // Assignment with = and preceding var declaration
 func assignWithVar() error {
+	// want `can inline assignment into if statement`
+	if err := foo(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment on same line as assignment
+func commentOnAssign() error {
+	/* important context */
+	// want `can inline assignment into if statement`
+	if err := foo(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment between assignment and if
+func commentBetweenStmts() error {
+	// want `can inline assignment into if statement`
+	// this checks for errors
+	if err := foo(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Comment on same line as assignment AND between statements
+func commentBoth() error {
+	/* inline note */
+	// want `can inline assignment into if statement`
+	// also a line comment
 	if err := foo(); err != nil {
 		return err
 	}
